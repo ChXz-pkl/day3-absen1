@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Absensi</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f2f2f2;
+      padding: 30px;
+      text-align: center;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    h1 {
+      color: #333;
+    }
+
+    form,
+    .controls {
+      margin: 15px 0;
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    input,
+    select,
+    button {
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      background-color: #4CAF50;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      border: none;
+    }
+
+    button:hover {
+      background-color: #45a049;
+    }
+
+    table {
+      margin: 0 auto;
+      width: 90%;
+      max-width: 800px;
+      background-color: white;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 10px;
+      border: 1px solid #ddd;
+    }
+
+    th {
+      background-color: #4CAF50;
+      color: white;
+    }
+
+    .late {
+      color: red;
+      font-weight: bold;
+    }
+
+    .on-time {
+      color: green;
+      font-weight: bold;
+    }
+
+    .alasan-badge {
+      font-style: italic;
+    }
+
+    .delete-btn {
+      background-color: #f44336;
+      color: white;
+      border: none;
+      padding: 6px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .delete-btn:hover {
+      background-color: #d32f2f;
+    }
+
+    #mingguNav button {
+      margin: 2px;
+      padding: 6px 12px;
+      border: 1px solid red;
+      background: skyblue;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    #mingguNav button.active {
+      background-color: #46d44a;
+      border: 1px solid green;
+    }
+
+    .table-wrapper {
+      overflow-x: auto;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 600px) {
+      .top-bar {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      form,
+      .controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      button,
+      input,
+      select {
+        width: 100%;
+      }
+
+      table {
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="top-bar">
+    <div id="userInfo">Login sebagai ...</div>
+    <button onclick="logout()">Logout</button>
+    <button id="syncButton" style="display: none;" onclick="backupKemarin()">Sync ke Google Sheets</button>
+  </div>
+
+  <h1>Dashboard Absensi</h1>
+
+  <div class="controls">
+    <select id="filterStatus">
+      <option value="all">Semua Status</option>
+      <option value="Tepat Waktu">Tepat Waktu</option>
+      <option value="Terlambat">Terlambat</option>
+    </select>
+
+    <select id="filterAlasan">
+      <option value="all">Semua Alasan</option>
+      <option value="Hadir">Hadir</option>
+      <option value="Sakit">Sakit</option>
+      <option value="Izin">Izin</option>
+      <option value="Bolos">Bolos</option>
+    </select>
+  </div>
+
+  <div id="mingguNav"></div>
+
+  <form id="absenForm">
+    <input type="text" id="nama" placeholder="Nama" required disabled />
+    <select id="alasan">
+      <option value="Hadir">Hadir</option>
+      <option value="Sakit">Sakit</option>
+      <option value="Izin">Izin</option>
+      <option value="Bolos">Bolos</option>
+    </select>
+    <button type="submit">Absen</button>
+  </form>
+
+  <div class="table-wrapper">
+    <table id="absenTable">
+      <thead>
+        <tr>
+          <th>Nama</th>
+          <th>Waktu</th>
+          <th>Status</th>
+          <th>Alasan</th>
+          <th>Aksi</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    const absenKey = "absenData";
+    const user = JSON.parse(localStorage.getItem("currentUser"));
+    const namaInput = document.getElementById("nama");
+    const alasanInput = document.getElementById("alasan");
+    const filterAlasan = document.getElementById("filterAlasan");
+    const filterStatus = document.getElementById("filterStatus");
+    const tableBody = document.querySelector("#absenTable tbody");
+    const userInfo = document.getElementById("userInfo");
+    const mingguNav = document.getElementById("mingguNav");
+
+    if (!user || localStorage.getItem("isLoggedIn") !== "true") {
+      window.location.href = "login-page.html";
+    }
+
+    userInfo.textContent = `Login sebagai ${user.username} (${user.role})`;
+    namaInput.value = user.username;
+
+    if (user.role === "admin") {
+      document.getElementById("syncButton").style.display = "inline-block";
+    }
+
+    let selectedWeek = getWeekNumber(new Date());
+
+    document.getElementById("absenForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      const waktu = new Date().toISOString();
+      const data = JSON.parse(localStorage.getItem(absenKey)) || [];
+
+      const entry = {
+        nama: namaInput.value,
+        waktu,
+        alasan: alasanInput.value,
+        oleh: user.username
+      };
+
+      data.push(entry);
+      localStorage.setItem(absenKey, JSON.stringify(data));
+      loadData();
+      loadMingguButtons();
+    });
+
+    function loadData() {
+      const data = JSON.parse(localStorage.getItem(absenKey)) || [];
+      const alasanFilter = filterAlasan.value;
+      const statusFilter = filterStatus.value;
+
+      tableBody.innerHTML = '';
+      data
+        .filter(item => getWeekNumber(new Date(item.waktu)) === selectedWeek)
+        .filter(item => alasanFilter === 'all' || item.alasan === alasanFilter)
+        .filter(item => {
+          const status = getStatus(item.waktu);
+          return statusFilter === 'all' || status === statusFilter;
+        })
+        .forEach((item, index) => {
+          const status = getStatus(item.waktu);
+          const canDelete = user.role === "admin" || item.oleh === user.username;
+
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${item.nama}</td>
+            <td>${new Date(item.waktu).toLocaleString()}</td>
+            <td class="${status === "Terlambat" ? "late" : "on-time"}">${status}</td>
+            <td class="alasan-badge">${item.alasan}</td>
+            <td>
+              ${canDelete ? `<button class="delete-btn" onclick="hapus(${index})">Hapus</button>` : ""}
+            </td>
+          `;
+          tableBody.appendChild(row);
+        });
+    }
+
+    function hapus(index) {
+      const data = JSON.parse(localStorage.getItem(absenKey)) || [];
+      const item = data[index];
+      if (user.role === "admin" || item.oleh === user.username) {
+        if (confirm("Yakin ingin hapus data ini?")) {
+          data.splice(index, 1);
+          localStorage.setItem(absenKey, JSON.stringify(data));
+          loadData();
+          loadMingguButtons();
+        }
+      } else {
+        alert("Tidak punya izin hapus data ini.");
+      }
+    }
+
+    function getStatus(waktu) {
+      const jam = new Date(waktu);
+      const batas = new Date(jam);
+      batas.setHours(8, 0, 0);
+      return jam > batas ? "Terlambat" : "Tepat Waktu";
+    }
+
+    function getWeekNumber(d) {
+      d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const dayNum = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    }
+
+    function loadMingguButtons() {
+      const data = JSON.parse(localStorage.getItem(absenKey)) || [];
+      const mingguSet = new Set();
+      data.forEach(item => {
+        mingguSet.add(getWeekNumber(new Date(item.waktu)));
+      });
+
+      mingguNav.innerHTML = '';
+      [...mingguSet].sort().forEach(week => {
+        const btn = document.createElement("button");
+        btn.textContent = `Minggu ${week}`;
+        btn.classList.toggle("active", week === selectedWeek);
+        btn.onclick = () => {
+          selectedWeek = week;
+          loadData();
+          loadMingguButtons();
+        };
+        mingguNav.appendChild(btn);
+      });
+    }
+
+    const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyGqlIXH5-CBHP0Z01cxaa0CN7Wn-gjLo8ixbzFXrO186IAuw4Z1WTw2sGmxdxjhK_M/exec";
+
+    function backupKemarin() {
+      const data = JSON.parse(localStorage.getItem("absenData")) || [];
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const targetDate = yesterday.toISOString().split("T")[0];
+      const toSend = data.filter(item => item.waktu.startsWith(targetDate));
+
+      if (toSend.length === 0) return alert("Tidak ada data absen kemarin.");
+
+      fetch(GOOGLE_SHEET_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toSend)
+      })
+        .then(res => res.json())
+        .then(result => {
+          alert("Berhasil kirim ke Google Sheets.");
+          const remaining = data.filter(item => !item.waktu.startsWith(targetDate));
+          localStorage.setItem("absenData", JSON.stringify(remaining));
+          loadData();
+        })
+        .catch(err => {
+          alert("Gagal backup: " + err.message);
+        });
+    }
+
+    function logout() {
+      localStorage.removeItem("isLoggedIn");
+      localStorage.removeItem("currentUser");
+      window.location.href = "login-page.html";
+    }
+
+    filterAlasan.addEventListener("change", loadData);
+    filterStatus.addEventListener("change", loadData);
+
+    window.addEventListener("load", () => {
+      loadData();
+      loadMingguButtons();
+      backupKemarin();
+    });
+  </script>
+</body>
+
+</html>
