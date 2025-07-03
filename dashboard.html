@@ -326,30 +326,45 @@
     const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbzjC5C8DuWT-2QEuzGRkSe0X6M4wXSsoLubVX_LMJKWHwBlbrXFCQuq22O9xEAueqRa/exec";
 
     function backupKemarin() {
-      const data = JSON.parse(localStorage.getItem("absenData")) || [];
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const targetDate = yesterday.toISOString().split("T")[0];
-      const toSend = data.filter(item => item.waktu.startsWith(targetDate));
+  const data = JSON.parse(localStorage.getItem("absenData")) || [];
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const targetDate = yesterday.toISOString().split("T")[0];
+  const toSend = data.filter(item => item.waktu.startsWith(targetDate));
 
-      if (toSend.length === 0) return alert("Tidak ada data absen kemarin.");
+  if (toSend.length === 0) return alert("Tidak ada data absen kemarin.");
 
-      fetch(GOOGLE_SHEET_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(toSend)
-      })
-        .then(res => res.json())
-        .then(result => {
-          alert("Berhasil kirim ke Google Sheets.");
-          const remaining = data.filter(item => !item.waktu.startsWith(targetDate));
-          localStorage.setItem("absenData", JSON.stringify(remaining));
-          loadData();
-        })
-        .catch(err => {
-          alert("Gagal backup: " + err.message);
-        });
+  // Gunakan JSONP untuk menghindari CORS
+  const callbackName = 'backupCallback' + Date.now();
+  
+  window[callbackName] = function(result) {
+    if (result.status === 'sukses') {
+      alert("Berhasil kirim ke Google Sheets.");
+      // Hapus data yang sudah di-backup
+      const remaining = data.filter(item => !item.waktu.startsWith(targetDate));
+      localStorage.setItem("absenData", JSON.stringify(remaining));
+      loadData();
+    } else {
+      alert("Gagal backup: " + (result.error || 'Unknown error'));
     }
+    
+    // Cleanup
+    document.head.removeChild(script);
+    delete window[callbackName];
+  };
+
+  const script = document.createElement('script');
+  const encodedData = encodeURIComponent(JSON.stringify(toSend));
+  script.src = GOOGLE_SHEET_URL + '?callback=' + callbackName + '&data=' + encodedData;
+  
+  script.onerror = function() {
+    alert("Gagal menghubungi server");
+    document.head.removeChild(script);
+    delete window[callbackName];
+  };
+  
+  document.head.appendChild(script);
+}
 
     function logout() {
       localStorage.removeItem("isLoggedIn");
